@@ -1,0 +1,249 @@
+---
+title: "Exploring CQI Coffee data"
+author: "Simon Laursen & Hjalte With"
+date: " created 09 January 2022, updated r Sys.Date()"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Loading libraries
+```{r}
+library(tidyverse)
+library(lubridate)
+library(janitor)
+library(dplyr)
+library(ggcorrplot) 
+library(forcats)
+
+```
+
+
+# Loading data and transforming empty cells to NA
+```{r}
+cqi_null_too_na <-  read.csv("~/OneDrive/UNI/5. semester/CDS/CDS_project/merged_data_cleaned.csv",  na.strings=c("","NA"))
+```
+
+
+# Cleaning the data
+```{r}
+#removing unnecessary columns
+cqi_remove_col <- cqi_null_too_na[-c(1,3,5:18,33,34,36:40)] 
+
+#Cleaning variables regarding altitude. 
+#Converting every variables from feet to meter, by detecting all values equal to ft in the variable unit of measurement. 
+#Afterwards we convert feet to meter by multiplying the corresponding value in the variable altitude_mean_meters with 0.3048.
+ft_to_m <- cqi_remove_col %>% 
+  mutate(altitude_mean_meters = case_when(
+    str_detect(unit_of_measurement, "ft") ~ altitude_mean_meters * 0.3048,
+    TRUE ~ altitude_mean_meters)
+  )
+
+#Removing altitude values above 4000 m.
+rem_high_alt <- ft_to_m %>% 
+  subset(altitude_mean_meters < 4000)
+
+#Removing remaining altitude variables except altitude_mean_meters
+rem_alt_vars <- rem_high_alt[-c(18:20)]
+
+#Creating final name for the clean data set
+coffee_data <- rem_alt_vars
+
+
+
+
+
+      
+```
+
+
+
+# Bar plots for data exploration
+```{r}
+
+
+#Distribution of coffee species
+#Counting the occurrence of the two different coffee species values and plotting them in a bar plot with ggplot.
+ggplot(coffee_data, aes(Species))+
+    geom_bar(fill="#f68060", alpha=.6, width=.4) +
+    coord_flip() +
+    theme_bw()
+
+#Distribution of Processing Method 
+#Counting the occurrence of the different Processing methods and omiting all NA's
+proces_method_count <- coffee_data %>% 
+  na.omit(Processing.Method) %>% 
+  count(Processing.Method)
+
+#Plotting the occurrence of the different values in descending order
+proces_method_count %>% 
+  mutate(Processing.Method = fct_reorder(Processing.Method, n)) %>%
+  ggplot(aes(Processing.Method, n))  +
+    geom_bar(stat="identity", fill="#f68060", alpha=.6, width=.4) +
+    coord_flip() +
+    xlab("") +
+    theme_bw()
+
+#Distribution of Variety of coffee sort
+#Counting the occurrence of the different varieties of coffee and omiting all NA's
+variety_count <- coffee_data %>% 
+  na.omit(Variety) %>% 
+  count(Variety)
+
+#Plotting the occurrence of the different values in descending order
+variety_count %>% 
+  mutate(Variety = fct_reorder(Variety, n)) %>%
+  ggplot(aes(Variety, n))  +
+    geom_bar(stat="identity", fill="#f68060", alpha=.6, width=.4) +
+    coord_flip() +
+    xlab("") +
+    theme_bw()
+
+#Distribution of Country of origin
+#Counting the occurrence of different countries
+country_count <- coffee_data %>% 
+  count(Country.of.Origin)
+
+#Plotting the occurrence of the different values in descending order
+country_count %>% 
+  mutate(Country.of.Origin = fct_reorder(Country.of.Origin, n)) %>%
+  ggplot(aes(Country.of.Origin, n))  +
+    geom_bar(stat="identity", fill="#f68060", alpha=.6, width=.4) +
+    coord_flip() +
+    xlab("") +
+    theme_bw()
+```
+# Boxplots to examine coherence between diffent variables
+```{r}
+#Boxplot showing coherence between species and TCP
+
+coffee_data %>% 
+ ggplot(aes(x = Species, y = Total.Cup.Points)) +
+    geom_boxplot() +
+    #geom_jitter(color="black", size=0.4, alpha=0.9) +
+    coord_flip() + 
+    ylim(60,90)
+    ggtitle("Species effect on Total Cup Points")
+    
+ggsave("plot3.png", height = 10, width = 20, dpi = 200)
+
+#Boxplot showing coherence between countries and TCP
+
+coffee_data %>% 
+ ggplot(aes(x = Country.of.Origin, y = Total.Cup.Points)) +
+    geom_boxplot() +
+    geom_jitter(color="black", size=0.4, alpha=0.9) +
+    coord_flip() +                                    
+    ylim(60,100) +                                     
+    ggtitle("Contry of Origin effect on Total Cup Points")
+
+
+ggsave("plot2.png", height = 10, width = 10, dpi = 200)
+
+```
+
+# Distribution of country vs Mean TCP for each country
+```{r}
+
+#mean TCP for each country
+mean_TCP <- coffee_data %>% 
+  group_by(Country.of.Origin) %>%   #Grouping the dataset by Country of origin
+  summarise_at(vars(Total.Cup.Points),funs(mean(.))) %>% #Summarizing at the TCP variable and using funs to get the average TCP-score for each country. 
+  mutate_if(is.numeric, round, digits=2) %>% #Rounding to 2 decimals
+  arrange(desc(Total.Cup.Points)) #Arranging the list in descending order
+mean_TCP
+
+
+#Arranging top 10 countries by occurrence (pulling variable name countrycount from previous section)
+top10_country_count <- country_count %>% 
+  arrange(desc(n))
+head(top10_country_count, 10)
+
+
+#Plotting top 10 countries by average TCP. We have chosen these country values based on top10_country_count 
+  ggplot(subset(mean_TCP, Country.of.Origin %in% c("Mexico", "Colombia", "Guatemala", "Brazil", "Taiwan", "United States (Hawaii)", "Honduras", "Costa Rica", "Ethiopia", "Tanzania, United Republic Of")),
+   aes(x = Country.of.Origin, y = Total.Cup.Points)) + 
+   geom_bar( stat = "identity", width = 0.2, position = "dodge") + 
+   geom_text(aes(label = Total.Cup.Points, y = Total.Cup.Points + 3),
+             position = position_dodge(0.9),
+             vjust = 0.25) +
+   coord_flip() +
+   ylim(0,90) +
+   labs( title = "Mean TCP for top 10 countries based on amount of reviews", x = "Country of origin", y = "Mean total cup point")
+  
+ggsave("plot1.png", height = 5, width = 10, dpi = 200)
+
+
+# Merging occurrence and average TCP of top 10 countries
+merge_TCP_count <- merge(mean_TCP, top10_country_count, by = "Country.of.Origin")
+
+#Plotting merged data frame and coloring by country of origin
+ggplot(subset(merge_TCP_count, 
+    Country.of.Origin %in% c("Mexico", "Colombia", "Guatemala", "Brazil", "Taiwan", "United States (Hawaii)", "Honduras", "Costa Rica", "Ethiopia", "Tanzania, United Republic Of")), 
+    aes(x=Total.Cup.Points, y=n, color = Country.of.Origin))+
+    geom_point()
+
+
+```
+# Distribution of TCP's level of altitude
+```{r}
+#Plotting TCP and altitude
+ggplot(coffee_data, aes(x=altitude_mean_meters, y=Total.Cup.Points)) +
+    geom_point(alpha=0.7) +
+    ylim(55, 100) #Limiting the y-axis to start at 55
+
+    ggsave("plot4.png", height = 15, width = 20, dpi = 200)
+    
+    
+```
+
+# Coherence between TCP and Average Altitude for each country
+
+```{r}
+
+# Plotting every observations TCP and altitude value and coloring by country
+ggplot(subset(coffee_data, 
+    Country.of.Origin %in% c("Mexico", "Colombia", "Guatemala", "Brazil", "Taiwan", "United States (Hawaii)", "Honduras", "Costa Rica", "Ethiopia", "Tanzania, United Republic Of")), 
+    aes(x=Total.Cup.Points, y=altitude_mean_meters, color = Country.of.Origin)) +
+    geom_point() +
+    xlim(75, 92) +
+    labs(x = "Total Cup Points", y = "Average Altitude (m)")
+    
+```
+
+
+#Correlation of grading variables
+```{r}
+
+
+# Choosing specific grading variables to include in new data frame
+grading_correlation <- coffee_data[c(5:15)]
+
+# Computing the correlation between all variables in grading_correlation
+corr <- cor(round((grading_correlation),1))
+head(corr[1:10])
+
+# Plotting the correlation data frame grading_correlation
+ggcorrplot(corr,
+  hc.order = TRUE,
+  type = "lower",
+  lab = TRUE,
+  method = "square",
+  outline.color = "white",
+  ggtheme = ggplot2::theme_gray,
+  colors = c("#6D9EC1", "white", "#4633FF"),
+  ) + 
+  theme(
+    legend.key.height = unit(1.5,"cm")
+  )
+
+ggsave("plot5.png", height = 10, width = 20, dpi = 200)
+ 
+```
+
